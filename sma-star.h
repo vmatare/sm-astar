@@ -1,19 +1,19 @@
-/*
- * sma-star.h
- *
- *  Created on: 24.10.2015
- *      Author: ich
- */
-
 #include <set>
 #include <vector>
 #include <unordered_set>
+#include <array>
+#include <unordered_map>
+#include <memory>
+#include <cmath>
 
 #ifndef SMA_STAR_H_
 #define SMA_STAR_H_
 
 #define _CART_TO_OFFSET(x, y, width) width * y + x
-#define _MAX_MEM 80*1024
+
+#ifndef MAX_MEM
+#define MAX_MEM 1024*1024*1024
+#endif
 
 class Node;
 class Map;
@@ -21,7 +21,6 @@ struct CompareByCostEstimate;
 
 typedef std::shared_ptr<Node> PNode;
 typedef std::weak_ptr<Node> WeakPNode;
-typedef std::set<PNode, CompareByCostEstimate> NodeQueue;
 typedef std::vector<PNode> Path;
 
 
@@ -37,59 +36,84 @@ struct EqualByOffset : public std::binary_function<Ptr_t, Ptr_t, bool> {
 };
 
 
-typedef std::unordered_set<PNode, HashByOffset<PNode>, EqualByOffset<PNode>> NodeSet;
+// Thanks to
+// http://stackoverflow.com/questions/1903954/is-there-a-standard-sign-function-signum-sgn-in-c-c
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
 
-typedef std::unordered_set<WeakPNode, HashByOffset<WeakPNode>, EqualByOffset<WeakPNode>> WeakNodeSet;
+
+typedef struct {
+	int x;
+	int y;
+} point_t;
+
+
+typedef std::unordered_set<PNode, HashByOffset<PNode>, EqualByOffset<PNode>> NodeSet;
+typedef std::unordered_map<int, WeakPNode, HashByOffset<int>, EqualByOffset<int>> WeakNodeSet;
+typedef std::set<PNode, CompareByCostEstimate> NodeQueue;
+
+
+constexpr double pi() { return std::atan(1)*4; }
 
 
 class Node {
+private:
+	Node(const Map &map, const int x, const int y, const PNode &parent, WeakNodeSet &allNodes);
 public:
-	Node(const Map &map, const int x, const int y, const PNode &parent, NodeQueue &queue);
 	~Node();
+	static PNode Spawn(const Map &map, const int x, const int y, const PNode &parent,
+			NodeQueue &queue, WeakNodeSet &allNodes);
 
 	void Erase(NodeQueue &queue, bool eraseFromQ = true);
-	void SimplifyPath(const Map &map, NodeQueue &queue);
+	bool SimplifyPath(const Map &map, NodeQueue &queue);
 	std::vector<PNode> FullPath();
+	NodeSet AllParents();
 
-	static const unsigned int Count();
-	inline const int    Offset() const;
-	inline const float  FCost() const;
-	inline const int   &GCost() const;
-	inline const float &HCost() const;
-	inline NodeSet     &Children();
-	inline NodeSet     &Parents();
-	inline void         SetHCost(const float hCost, NodeQueue &queue);
-	inline const int    Serial() const;
+	const int    Offset() const;
+	const float  FCost() const;
+	const int    GCost() const;
+	NodeSet     &Children();
+	PNode        Parent();
+	void         SetGCost(const int gCost, NodeQueue &queue);
+	void         SetFCost(const float fCost, NodeQueue &queue);
+	bool         Completed();
+	void         Reset();
+	unsigned long int ID() const;
 
-	PNode BestParent() const;
+	void Backup(NodeQueue &queue);
 
+	PNode ExpandNext(const Map &map, NodeQueue &queue);
 
 private:
-	static WeakNodeSet allNodes_;
-	static int count_;
+	static const point_t expandLeft_[4];
+	static const point_t expandDown_[4];
+	static const point_t expandUp_[4];
+	static const point_t expandRight_[4];
+
+	thread_local static unsigned long int count_;
 
 	int offset_;
-	const int gCost_;
-	float hCost_;
-	int serial_;
-	NodeSet parents_;
+	int gCost_;
+	float fCost_;
+	PNode parent_;
 	NodeSet children_;
+	WeakNodeSet &allNodes_;
+	int x_;
+	int y_;
+	unsigned char expandIdx_;
+	unsigned long int id_;
 };
 
 
 struct CompareByCostEstimate : public std::binary_function<PNode, PNode, bool>{
 	bool operator() (const PNode &node1, const PNode &node2) const {
-		/* If offsets are equal, the two nodes are identical.
-		 * In that case, satisfy !comp(a, b) && !comp(b, a) for identity semantics.
-		 * cf. http://en.cppreference.com/w/cpp/container/set
-		 * Identity is important in expansion queue so A* doesn't search in circles.
-		 */
-		if (node1->Offset() == node2->Offset())
-			return false;
-
 		// Different nodes but same cost: put newer one in front.
-		if (node1->FCost() == node2->FCost())
-			return node1->Serial() > node2->Serial();
+		if (node1->FCost() == node2->FCost()) {
+			if (node1->GCost() == node2->GCost())
+				return node1->ID() > node2->ID();
+			return node1->GCost() > node2->GCost();
+		}
 
 		return node1->FCost() < node2->FCost();
 	}
@@ -102,33 +126,31 @@ public:
 	Map(const unsigned char* pMap, const int nMapWidth, const int nMapHeight,
 			const int targetX, const int targetY);
 
-	inline unsigned int X(const int offset) const;
-	inline unsigned int Y(const int offset) const;
+	int X(const int offset) const;
+	int Y(const int offset) const;
 
-	inline int Offset(const int x, const int y) const;
-	void Expand(const PNode &n, NodeQueue &queue) const;
-	inline bool Passable(const int x, const int y) const;
-	inline float HCost(const int from) const;
-	inline int Height() const;
-	inline int Width() const;
+	int   Offset(const int x, const int y) const;
+	bool  Passable(const int x, const int y) const;
+	float HCost(const int from) const;
+	float HCost2(const int from) const;
+	int   Height() const;
+	int   Width() const;
+	float Phi(const Node *) const;
 
-private:
-	const unsigned char *pMap_;
 	const int nMapWidth_, nMapHeight_;
 	const int targetOffset_;
+private:
+	const unsigned char *pMap_;
 
 	static const char searchX_[4];
 	static const char searchY_[4];
 };
 
 
-std::vector<std::string> Paint(Map &map, const PNode &node);
-
 int FindPath(const int nStartX, const int nStartY,
              const int nTargetX, const int nTargetY,
              const unsigned char* pMap, const int nMapWidth, const int nMapHeight,
              int* pOutBuffer, const int nOutBufferSize);
-
 
 
 

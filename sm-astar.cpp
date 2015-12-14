@@ -1,10 +1,11 @@
+#include "sm-astar.h"
+
 #include <limits>
 #include <cstring>
 #include <exception>
 #include <iostream>
 #include <numeric>
 
-#include "sma-star.h"
 #include "output.h"
 
 const char Map::searchX_[] = {1,  0, -1,  0};

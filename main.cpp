@@ -1,4 +1,4 @@
-#include "sma-star.h"
+#include "sm-astar.h"
 
 
 int main(int argc, char **argv)

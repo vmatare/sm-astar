@@ -1,6 +1,7 @@
+
 #ifndef OUTPUT_H_
 
-#include "sma-star.h"
+#include "sm-astar.h"
 
 
 void Paint(Map &map, const PNode &node, const PNode &startNode);
